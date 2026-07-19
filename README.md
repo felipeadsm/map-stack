@@ -18,3 +18,12 @@ poetry install
 poetry run python 01_geometria/exemplo.py     # exemplos comentados
 poetry run python 01_geometria/exercicios.py  # exercicios para implementar
 ```
+
+## Marco 2: PostGIS
+
+```
+docker compose up -d   # sobe o Postgres+PostGIS na porta 5433 do host
+docker compose exec -T postgis psql -U mapstack -d mapstack < 02_postgis/01_setup.sql
+docker compose exec -T postgis psql -U mapstack -d mapstack < 02_postgis/02_exemplo.sql     # exemplos comentados
+docker compose exec -T postgis psql -U mapstack -d mapstack < 02_postgis/03_exercicios.sql  # exercicios para implementar
+```
