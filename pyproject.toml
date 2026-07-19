@@ -1,0 +1,18 @@
+[project]
+name = "map-stack"
+version = "0.1.0"
+description = "Estudo pratico de engenharia geoespacial: Python, PostGIS, telemetria e React"
+authors = [
+    {name = "Felipe Mendonça",email = "97059009+felipeadsm@users.noreply.github.com"}
+]
+readme = "README.md"
+requires-python = "^3.13"
+dependencies = [
+    "shapely (>=2.1.2,<3.0.0)",
+    "pyproj (>=3.7.2,<4.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
