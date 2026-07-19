@@ -52,12 +52,19 @@ DECLARE
     resultado_num double precision;
     resultado_txt text;
 BEGIN
-    -- Exercicio 1: a 500m do primeiro ponto de drone-1 so ha telemetria
-    -- do proprio drone-1 (drone-2 esta a 3.4km, bem mais longe).
+    -- Exercicio 1: a 500m do primeiro ponto de drone-1 tem que aparecer o
+    -- proprio drone-1 (drone-2 esta a 3.4km, bem mais longe -- nao devia
+    -- aparecer). Checamos "contem drone-1", nao igualdade exata: a partir
+    -- do marco 5/6 o simulador e o adapter MQTT escrevem nessa mesma
+    -- tabela continuamente, entao outros veiculos podem legitimamente
+    -- passar perto desse ponto tambem.
     SELECT array_agg(DISTINCT v ORDER BY v) INTO resultado
     FROM veiculos_proximos(ST_SetSRID(ST_MakePoint(-46.6333, -23.5505), 4326), 500) AS v;
-    IF resultado IS DISTINCT FROM ARRAY['drone-1'] THEN
-        RAISE EXCEPTION 'exercicio 1: esperado {drone-1}, veio %', resultado;
+    IF NOT ('drone-1' = ANY(resultado)) THEN
+        RAISE EXCEPTION 'exercicio 1: esperado conter drone-1, veio %', resultado;
+    END IF;
+    IF 'drone-2' = ANY(resultado) THEN
+        RAISE EXCEPTION 'exercicio 1: drone-2 nao deveria estar a 500m, veio %', resultado;
     END IF;
     RAISE NOTICE 'exercicio 1 ok';
 

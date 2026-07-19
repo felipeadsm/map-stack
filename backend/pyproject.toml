@@ -5,7 +5,6 @@ description = "Estudo pratico de engenharia geoespacial: Python, PostGIS, teleme
 authors = [
     {name = "Felipe Mendonça",email = "97059009+felipeadsm@users.noreply.github.com"}
 ]
-readme = "README.md"
 requires-python = "^3.13"
 dependencies = [
     "shapely (>=2.1.2,<3.0.0)",
@@ -14,9 +13,25 @@ dependencies = [
     "uvicorn[standard] (>=0.51.0,<0.52.0)",
     "sqlalchemy (>=2.0.51,<3.0.0)",
     "geoalchemy2 (>=0.20.0,<0.21.0)",
-    "psycopg[binary] (>=3.3.4,<4.0.0)"
+    "psycopg[binary] (>=3.3.4,<4.0.0)",
+    "paho-mqtt (>=2.1.0,<3.0.0)"
 ]
 
+[tool.poetry]
+# Este repo nao e um pacote pra publicar/instalar em outro lugar -- e so
+# um projeto de estudo com scripts que rodam direto. package-mode=false
+# diz ao Poetry "so gerencie as dependencias e o venv, nao tente empacotar
+# nada" (sem isso, ele exige uma estrutura de pacote Python formal).
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.1.1"
+httpx = "^0.28.1"
+pytest-asyncio = "^1.4.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

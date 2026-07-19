@@ -3,25 +3,10 @@ import { CircleMarker, MapContainer, Marker, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import "./leaflet-icon-fix";
 import FpsMeter from "./FpsMeter";
+import { CENTRO_SP } from "./geo";
+import { gerarPontos } from "./geraPontos";
 
 type Modo = "marcador-dom" | "circulo-svg" | "circulo-canvas";
-
-const CENTRO_SP: [number, number] = [-23.5505, -46.6333];
-
-// Gera pontos aleatorios num raio (bruto, em graus) ao redor do centro --
-// so para termos MUITOS pontos sem depender do banco. O objetivo aqui e
-// testar o CUSTO DE RENDERIZACAO no navegador, entao os dados sinteticos
-// bastam; a origem dos dados (banco vs gerado na hora) nao muda o
-// argumento.
-function gerarPontos(quantidade: number): [number, number][] {
-  const pontos: [number, number][] = [];
-  for (let i = 0; i < quantidade; i++) {
-    const lat = CENTRO_SP[0] + (Math.random() - 0.5) * 0.6;
-    const lon = CENTRO_SP[1] + (Math.random() - 0.5) * 0.6;
-    pontos.push([lat, lon]);
-  }
-  return pontos;
-}
 
 function useContagemDom(seletor: string, ativo: boolean): number {
   const [contagem, setContagem] = useState(0);

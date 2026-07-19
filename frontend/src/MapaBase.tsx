@@ -3,6 +3,7 @@ import { LayersControl, MapContainer, Marker, Polygon, Popup, TileLayer } from "
 import "leaflet/dist/leaflet.css";
 import "./leaflet-icon-fix";
 import { buscarGeocercas, buscarTelemetria } from "./api";
+import { CENTRO_SP, paraLatLng } from "./geo";
 import type { GeocercaProps, PoligonoGeoJSON, PontoGeoJSON, TelemetriaProps } from "./types";
 
 // react-leaflet e uma camada FINA sobre o Leaflet, nao um mapa reescrito
@@ -17,15 +18,6 @@ import type { GeocercaProps, PoligonoGeoJSON, PontoGeoJSON, TelemetriaProps } fr
 // Isso importa para performance: reconciliar (fazer o "diff") de uma
 // arvore React com milhares de <Marker> é caro por si so, ANTES mesmo do
 // Leaflet entrar em cena -- ver LaboratorioPerformance.tsx.
-
-// Coordenadas em [latitude, longitude] aqui (Leaflet usa essa ordem,
-// AO CONTRARIO do GeoJSON, que usa [longitude, latitude] -- outra
-// pegadinha de CRS/convencao para prestar atencao).
-const CENTRO_SP: [number, number] = [-23.5505, -46.6333];
-
-function paraLatLng(coords: [number, number]): [number, number] {
-  return [coords[1], coords[0]];
-}
 
 export default function MapaBase() {
   const [geocercas, setGeocercas] = useState<

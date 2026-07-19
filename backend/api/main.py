@@ -1,4 +1,5 @@
-"""Marco 3: API real servindo os dados espaciais do marco 2 como GeoJSON.
+"""API do map-stack: marcos 3 (FastAPI + GeoAlchemy2), 5 (WebSocket) e 6
+(adapters de ingestao plugaveis) reunidos no mesmo processo.
 
 FastAPI e um framework Python para construir APIs; roda sobre ASGI
 (Asynchronous Server Gateway Interface -- o padrao que permite ao Python
@@ -6,7 +7,7 @@ lidar com muitas requisicoes concorrentes sem bloquear). Uvicorn e o
 servidor que efetivamente escuta a porta e chama a aplicacao FastAPI a
 cada requisicao.
 
-Rode com: poetry run python 03_api/main.py
+Rode com: poetry run python api/main.py
 Depois abra http://127.0.0.1:8000/docs -- o FastAPI gera essa pagina
 interativa (Swagger UI) sozinho, a partir da assinatura das funcoes abaixo.
 """
@@ -17,13 +18,16 @@ from typing import Callable
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
+from sqlalchemy import insert, select
 
 from database import SessionLocal
 from exercicios import telemetria_proximos
 from geojson import geometria_para_geojson
+from ingest.base import IngestAdapter
+from ingest.mqtt_adapter import MqttAdapter
+from ingest.simulador_adapter import SimuladorAdapter
 from models import Geocerca, Telemetria
-from simulador import simular_movimento
 
 # Marco 5: quem esta conectado no WebSocket agora. Um `set` simples --
 # cada conexao aberta em /ws/telemetria entra aqui, e sai quando desconecta.
@@ -49,18 +53,58 @@ async def broadcast(mensagem: dict) -> None:
         conexoes_ativas.discard(conexao)
 
 
+async def consumir_adapter(adapter: IngestAdapter) -> None:
+    """Laco generico: para QUALQUER adapter (simulador, MQTT, o que vier
+    depois), faz sempre a mesma coisa com cada Posicao que ele produzir --
+    grava no banco e propaga via WebSocket. Antes do marco 6, essa logica
+    de "gravar + mandar" estava duplicada dentro do proprio simulador; com
+    o adapter, ela existe uma vez so, e vale para qualquer fonte.
+    """
+    async for posicao in adapter.posicoes():
+        with SessionLocal() as session:
+            session.execute(
+                insert(Telemetria).values(
+                    veiculo_id=posicao["veiculo_id"],
+                    geom=ST_SetSRID(ST_MakePoint(posicao["lon"], posicao["lat"]), 4326),
+                    capturado_em=posicao["capturado_em"],
+                )
+            )
+            session.commit()
+
+        await broadcast(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [posicao["lon"], posicao["lat"]]},
+                "properties": {
+                    "veiculo_id": posicao["veiculo_id"],
+                    "capturado_em": posicao["capturado_em"].isoformat(),
+                },
+            }
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # "lifespan" e o lugar certo (na versao atual do FastAPI) para
     # codigo que deve rodar uma vez quando o servidor sobe e uma vez
-    # quando ele desliga -- aqui, disparamos o loop do simulador como uma
-    # "task" de fundo que roda concorrentemente com as requisicoes normais.
-    tarefa_simulador = asyncio.create_task(simular_movimento(broadcast))
+    # quando ele desliga -- aqui, disparamos UMA task por adapter
+    # configurado. Adicionar uma fonte nova de telemetria (outro topico
+    # MQTT, um arquivo de replay, etc.) e so acrescentar mais uma linha
+    # aqui, sem tocar no resto do arquivo.
+    tarefas = [
+        asyncio.create_task(consumir_adapter(SimuladorAdapter())),
+        asyncio.create_task(consumir_adapter(MqttAdapter())),
+    ]
     yield
-    tarefa_simulador.cancel()
+    for tarefa in tarefas:
+        tarefa.cancel()
 
 
-app = FastAPI(title="map-stack API", description="Marco 3-5: FastAPI + GeoAlchemy2 + WebSocket", lifespan=lifespan)
+app = FastAPI(
+    title="map-stack API",
+    description="Marcos 3, 5 e 6: FastAPI + GeoAlchemy2 + WebSocket + adapters de ingestao",
+    lifespan=lifespan,
+)
 
 # CORS (Cross-Origin Resource Sharing): por padrao, o navegador bloqueia
 # uma pagina servida em http://localhost:5173 (o front, marco 4) de fazer
