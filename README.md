@@ -27,3 +27,12 @@ docker compose exec -T postgis psql -U mapstack -d mapstack < 02_postgis/01_setu
 docker compose exec -T postgis psql -U mapstack -d mapstack < 02_postgis/02_exemplo.sql     # exemplos comentados
 docker compose exec -T postgis psql -U mapstack -d mapstack < 02_postgis/03_exercicios.sql  # exercicios para implementar
 ```
+
+## Marco 3: FastAPI + GeoAlchemy2
+
+Precisa do marco 2 rodando (`docker compose up -d` + `01_setup.sql` ja aplicado).
+
+```
+poetry run python 03_api/main.py         # sobe a API em http://127.0.0.1:8000 (docs em /docs)
+poetry run python 03_api/exercicios.py   # exercicio para implementar
+```
