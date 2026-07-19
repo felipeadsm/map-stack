@@ -11,9 +11,11 @@ Depois abra http://127.0.0.1:8000/docs -- o FastAPI gera essa pagina
 interativa (Swagger UI) sozinho, a partir da assinatura das funcoes abaixo.
 """
 
+import asyncio
+from contextlib import asynccontextmanager
 from typing import Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
@@ -21,8 +23,44 @@ from database import SessionLocal
 from exercicios import telemetria_proximos
 from geojson import geometria_para_geojson
 from models import Geocerca, Telemetria
+from simulador import simular_movimento
 
-app = FastAPI(title="map-stack API", description="Marco 3: FastAPI + GeoAlchemy2")
+# Marco 5: quem esta conectado no WebSocket agora. Um `set` simples --
+# cada conexao aberta em /ws/telemetria entra aqui, e sai quando desconecta.
+conexoes_ativas: set[WebSocket] = set()
+
+
+async def broadcast(mensagem: dict) -> None:
+    """Manda `mensagem` (um Feature GeoJSON) para todo mundo conectado.
+
+    Diferente de um GET, que responde a UM pedido, o WebSocket e uma
+    conexao aberta e persistente nos dois sentidos -- o servidor pode
+    mandar mensagem a qualquer momento, sem o cliente pedir de novo. Por
+    isso "broadcast" (mandar a mesma coisa pra todo mundo conectado) e o
+    padrao natural aqui, e nao existiria com HTTP comum.
+    """
+    conexoes_mortas = []
+    for conexao in conexoes_ativas:
+        try:
+            await conexao.send_json(mensagem)
+        except Exception:
+            conexoes_mortas.append(conexao)
+    for conexao in conexoes_mortas:
+        conexoes_ativas.discard(conexao)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # "lifespan" e o lugar certo (na versao atual do FastAPI) para
+    # codigo que deve rodar uma vez quando o servidor sobe e uma vez
+    # quando ele desliga -- aqui, disparamos o loop do simulador como uma
+    # "task" de fundo que roda concorrentemente com as requisicoes normais.
+    tarefa_simulador = asyncio.create_task(simular_movimento(broadcast))
+    yield
+    tarefa_simulador.cancel()
+
+
+app = FastAPI(title="map-stack API", description="Marco 3-5: FastAPI + GeoAlchemy2 + WebSocket", lifespan=lifespan)
 
 # CORS (Cross-Origin Resource Sharing): por padrao, o navegador bloqueia
 # uma pagina servida em http://localhost:5173 (o front, marco 4) de fazer
@@ -88,6 +126,25 @@ def telemetria_proximos_endpoint(lon: float, lat: float, raio_metros: float = 10
             pontos,
             lambda p: {"id": p.id, "veiculo_id": p.veiculo_id, "capturado_em": p.capturado_em.isoformat()},
         )
+
+
+@app.websocket("/ws/telemetria")
+async def websocket_telemetria(websocket: WebSocket):
+    """Endpoint WebSocket: o navegador conecta uma vez (`new WebSocket(...)`
+    no front) e fica recebendo, de forma continua, cada posicao nova que o
+    simulador gerar -- sem precisar dar poll (ficar perguntando "tem
+    novidade?" de tempos em tempos, como faria com fetch()).
+    """
+    await websocket.accept()
+    conexoes_ativas.add(websocket)
+    try:
+        while True:
+            # Nao esperamos nenhuma mensagem do cliente -- so usamos
+            # receive_text() para o FastAPI notar quando o navegador
+            # fecha a conexao (ai isso levanta WebSocketDisconnect).
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        conexoes_ativas.discard(websocket)
 
 
 if __name__ == "__main__":

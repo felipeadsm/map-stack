@@ -53,3 +53,13 @@ docker compose logs -f frontend                          # acompanhar o dev serv
 docker compose exec frontend npm install <pacote>         # instalar nova dependencia
 docker compose exec frontend npx tsc --noEmit -p tsconfig.app.json  # checar tipos
 ```
+
+## Marco 5: telemetria em stream
+
+Continua rodando dentro do processo do marco 3 (`poetry run python 03_api/main.py`) -- so adiciona um endpoint WebSocket (`/ws/telemetria`) e um simulador de movimento que grava no banco e transmite cada posicao nova aos clientes conectados.
+
+```
+poetry run python 03_api/exercicios_movimento.py  # exercicio: geodesia direta (Geod.fwd)
+```
+
+Depois de implementar, reinicie `03_api/main.py` e abra a aba "Tempo real" em http://localhost:5173 -- dois veiculos simulados (sim-1, sim-2) devem comecar a se mover.

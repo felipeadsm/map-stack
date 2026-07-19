@@ -12,6 +12,12 @@ import type {
 // "localhost:8000" aqui se refere a maquina do usuario, nao ao container.
 const API_URL = "http://localhost:8000";
 
+// "ws://" e o equivalente de "http://" para WebSocket: mesmo host/porta,
+// protocolo diferente porque a conexao fica aberta (nao e um
+// request/response que termina). Se a API estivesse atras de HTTPS, seria
+// "wss://" (o "s" de seguro), do mesmo jeito que HTTP vira HTTPS.
+export const WS_TELEMETRIA_URL = "ws://localhost:8000/ws/telemetria";
+
 export async function buscarGeocercas(): Promise<
   FeatureCollectionGeoJSON<PoligonoGeoJSON, GeocercaProps>
 > {

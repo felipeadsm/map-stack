@@ -1,8 +1,9 @@
 import { useState } from "react";
 import LaboratorioPerformance from "./LaboratorioPerformance";
 import MapaBase from "./MapaBase";
+import MapaTempoReal from "./MapaTempoReal";
 
-type Aba = "mapa" | "performance";
+type Aba = "mapa" | "performance" | "tempo-real";
 
 export default function App() {
   const [aba, setAba] = useState<Aba>("mapa");
@@ -16,9 +17,14 @@ export default function App() {
         <button onClick={() => setAba("performance")} disabled={aba === "performance"}>
           Laboratorio de performance
         </button>
+        <button onClick={() => setAba("tempo-real")} disabled={aba === "tempo-real"}>
+          Tempo real (marco 5)
+        </button>
       </nav>
       <div style={{ flex: 1, minHeight: 0 }}>
-        {aba === "mapa" ? <MapaBase /> : <LaboratorioPerformance />}
+        {aba === "mapa" && <MapaBase />}
+        {aba === "performance" && <LaboratorioPerformance />}
+        {aba === "tempo-real" && <MapaTempoReal />}
       </div>
     </div>
   );
