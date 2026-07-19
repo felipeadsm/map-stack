@@ -36,3 +36,20 @@ Precisa do marco 2 rodando (`docker compose up -d` + `01_setup.sql` ja aplicado)
 poetry run python 03_api/main.py         # sobe a API em http://127.0.0.1:8000 (docs em /docs)
 poetry run python 03_api/exercicios.py   # exercicio para implementar
 ```
+
+## Marco 4: React + Leaflet
+
+Precisa do marco 2 (Docker) e do marco 3 (`poetry run python 03_api/main.py`) rodando. Node/React rodam so dentro de container -- nada instalado no host.
+
+```
+docker compose up -d frontend   # sobe o Vite dev server em http://localhost:5173
+```
+
+Abas do app: **Mapa** (camadas base OpenStreetMap/satelite + overlays de geocercas/telemetria vindos da API) e **Laboratorio de performance** (compara custo de renderizar milhares de pontos como marcador DOM vs circulo SVG vs circulo Canvas, com contador de FPS ao vivo).
+
+Comandos uteis:
+```
+docker compose logs -f frontend                          # acompanhar o dev server
+docker compose exec frontend npm install <pacote>         # instalar nova dependencia
+docker compose exec frontend npx tsc --noEmit -p tsconfig.app.json  # checar tipos
+```

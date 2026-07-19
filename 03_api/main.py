@@ -14,6 +14,7 @@ interativa (Swagger UI) sozinho, a partir da assinatura das funcoes abaixo.
 from typing import Callable
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from database import SessionLocal
@@ -22,6 +23,18 @@ from geojson import geometria_para_geojson
 from models import Geocerca, Telemetria
 
 app = FastAPI(title="map-stack API", description="Marco 3: FastAPI + GeoAlchemy2")
+
+# CORS (Cross-Origin Resource Sharing): por padrao, o navegador bloqueia
+# uma pagina servida em http://localhost:5173 (o front, marco 4) de fazer
+# fetch() para http://localhost:8000 (esta API) -- porta diferente conta
+# como "origem" diferente. Este middleware manda o cabecalho HTTP que
+# autoriza explicitamente essa origem a consumir a API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 def feature_collection(linhas: list, propriedades: Callable) -> dict:
