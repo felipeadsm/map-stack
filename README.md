@@ -144,6 +144,22 @@ docker compose exec frontend npm test
    poetry run python api/ingest/mqtt_publicador_teste.py   # simula um dispositivo publicando
    ```
 
+## Evolucao natural: onde dados de telemetria moram
+
+O dado muda de "casa" conforme fica mais velho, por "temperatura":
+
+| Camada | Pergunta | Cresce? | Ferramenta tipica | Aqui |
+| --- | --- | --- | --- | --- |
+| Quente (atual) | Onde esta X agora? | Nao | Redis (`SET`/`GEOADD`) | `telemetria_atual`, UPSERT |
+| Morna (recente) | O que aconteceu nas ultimas horas? | Com teto | TimescaleDB, InfluxDB | `telemetria` + TTL de 1h |
+| Fria (arquivo) | O que aconteceu ha meses/anos? | Sem teto, barato/GB | S3/GCS em Parquet | Nao implementado |
+
+O caminho natural de evolucao seria `dispositivo -> broker durável (Kafka/MQTT) -> atualiza a quente + grava a morna com retencao + arquiva a fria em lote` -- ja e a forma deste repo (`adapter -> consumir_adapter -> telemetria_atual + telemetria com TTL`), so com Postgres no lugar de Redis+TimescaleDB e sem camada fria (nao precisamos de arquivo longo aqui).
+
+**Por que Postgres/UPSERT em vez de Redis:** Postgres usa MVCC, entao todo UPSERT cria uma nova versao da linha (limpa depois via `VACUUM`) mesmo numa tabela que nunca cresce -- Redis seria mais barato pra esse padrao. Ficamos com Postgres porque varios processos precisam ver o mesmo estado, ele sobrevive a reinicio, e ja pagavamos essa infra pelo historico/queries espaciais. Em escala de frota real, Redis na camada quente e o caminho natural.
+
+Pergunta a fazer antes de gravar algo: *quem vai ler isso depois, e quando?* So o valor mais recente -> quente. Ultimas horas -> morna, com TTL desde o dia 1. Anos depois -> fria, fora do banco operacional. O bug desta sessao foi nunca ter feito essa pergunta, ate a tabela chegar a 1 milhao de linhas.
+
 ## Licoes aprendidas (bugs reais, encontrados rodando o sistema)
 
 Ao ligar a frota de 1000 carros, dois problemas reais apareceram -- vale documentar porque sao erros classicos de sistemas geoespaciais em escala, nao coisas obvias de antemao:
