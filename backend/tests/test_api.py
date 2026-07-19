@@ -30,6 +30,27 @@ def test_telemetria_filtra_por_veiculo():
     assert all(f["properties"]["veiculo_id"] == "drone-2" for f in corpo["features"])
 
 
+def test_telemetria_atual_tem_no_maximo_um_ponto_por_veiculo():
+    # Regressao: a aba Mapa do front travou porque buscava TODO o
+    # historico de /telemetria (que cresce pra sempre com o simulador
+    # rodando) e desenhava cada linha como marcador. /telemetria/atual
+    # existe para isso nao acontecer de novo.
+    with TestClient(main.app) as client:
+        resposta = client.get("/telemetria/atual")
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    veiculos = [f["properties"]["veiculo_id"] for f in corpo["features"]]
+    assert len(veiculos) == len(set(veiculos))
+    assert "drone-1" in veiculos
+
+
+def test_telemetria_respeita_o_limite():
+    with TestClient(main.app) as client:
+        resposta = client.get("/telemetria", params={"limite": 2})
+    assert resposta.status_code == 200
+    assert len(resposta.json()["features"]) <= 2
+
+
 def test_telemetria_proximos_via_http():
     with TestClient(main.app) as client:
         resposta = client.get(

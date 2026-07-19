@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { LayersControl, MapContainer, Marker, Polygon, Popup, TileLayer } from "react-leaflet";
+import { LayersControl, MapContainer, Polygon, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import "./leaflet-icon-fix";
-import { buscarGeocercas, buscarTelemetria } from "./api";
+import { buscarGeocercas, buscarTelemetriaAtual } from "./api";
+import CamadaTelemetriaAtual from "./CamadaTelemetriaAtual";
 import { CENTRO_SP, paraLatLng } from "./geo";
 import type { GeocercaProps, PoligonoGeoJSON, PontoGeoJSON, TelemetriaProps } from "./types";
 
@@ -18,6 +19,19 @@ import type { GeocercaProps, PoligonoGeoJSON, PontoGeoJSON, TelemetriaProps } fr
 // Isso importa para performance: reconciliar (fazer o "diff") de uma
 // arvore React com milhares de <Marker> é caro por si so, ANTES mesmo do
 // Leaflet entrar em cena -- ver LaboratorioPerformance.tsx.
+//
+// Essa aba busca /telemetria/atual (so a posicao mais recente de cada
+// veiculo), nao o historico completo -- que cresce pra sempre com o
+// simulador/MQTT/frota viaria rodando em loop.
+//
+// A telemetria (ate ~1000 veiculos com a frota viaria do marco 6) NAO e
+// desenhada como filhos JSX de <LayersControl.Overlay> -- foi exatamente
+// isso que travou a pagina (ver CamadaTelemetriaAtual.tsx): o
+// LayersControl espera controlar poucas camadas, nao reconciliar
+// centenas/milhares de elementos React de uma vez. A tela ficava presa
+// no meio dessa reconciliacao, e por isso nem os tiles do mapa
+// terminavam de pintar -- a thread principal estava ocupada demais para
+// processar o carregamento das imagens.
 
 export default function MapaBase() {
   const [geocercas, setGeocercas] = useState<
@@ -29,11 +43,11 @@ export default function MapaBase() {
 
   useEffect(() => {
     buscarGeocercas().then((fc) => setGeocercas(fc.features));
-    buscarTelemetria().then((fc) => setTelemetria(fc.features));
+    buscarTelemetriaAtual().then((fc) => setTelemetria(fc.features));
   }, []);
 
   return (
-    <MapContainer center={CENTRO_SP} zoom={13} style={{ height: "100%", width: "100%" }}>
+    <MapContainer center={CENTRO_SP} zoom={13} preferCanvas style={{ height: "100%", width: "100%" }}>
       {/* BaseLayer = camadas de fundo, mutuamente exclusivas (so uma
           ativa por vez) -- e aqui que "satelite" entra: e SO OUTRO
           provedor de tiles raster, mesma mecanica do OpenStreetMap, so
@@ -54,9 +68,8 @@ export default function MapaBase() {
           />
         </LayersControl.BaseLayer>
 
-        {/* Overlay = camadas empilhaveis por cima da base, cada uma pode
-            ser ligada/desligada independente -- os dados que vieram da
-            SUA api (marco 3), nao de um provedor de mapa terceiro. */}
+        {/* Overlay = camadas empilhaveis por cima da base -- so a
+            geocerca (poucos poligonos) fica aqui dentro; e barato. */}
         <LayersControl.Overlay checked name="Geocercas">
           <>
             {geocercas.map((g) => (
@@ -70,20 +83,12 @@ export default function MapaBase() {
             ))}
           </>
         </LayersControl.Overlay>
-
-        <LayersControl.Overlay checked name="Telemetria">
-          <>
-            {telemetria.map((t) => (
-              <Marker key={t.properties.id} position={paraLatLng(t.geometry.coordinates)}>
-                <Popup>
-                  {t.properties.veiculo_id} <br />
-                  {new Date(t.properties.capturado_em).toLocaleString()}
-                </Popup>
-              </Marker>
-            ))}
-          </>
-        </LayersControl.Overlay>
       </LayersControl>
+
+      {/* Telemetria: fora do LayersControl, desenhada de forma
+          imperativa (ver CamadaTelemetriaAtual.tsx) -- escala pra
+          centenas/milhares de veiculos sem travar a reconciliacao do React. */}
+      <CamadaTelemetriaAtual pontos={telemetria} />
     </MapContainer>
   );
 }

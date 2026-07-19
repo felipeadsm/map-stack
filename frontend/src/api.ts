@@ -31,3 +31,14 @@ export async function buscarTelemetria(): Promise<
   const resposta = await fetch(`${API_URL}/telemetria`);
   return resposta.json();
 }
+
+// So a posicao mais recente de cada veiculo -- o que a aba "Mapa" usa. O
+// historico completo (buscarTelemetria) cresce pra sempre com o
+// simulador/MQTT rodando; renderizar TODO ele como marcador de icone foi
+// o que travou a pagina (ver conversa) -- essa e a correcao.
+export async function buscarTelemetriaAtual(): Promise<
+  FeatureCollectionGeoJSON<PontoGeoJSON, TelemetriaProps>
+> {
+  const resposta = await fetch(`${API_URL}/telemetria/atual`);
+  return resposta.json();
+}

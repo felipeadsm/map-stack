@@ -42,6 +42,14 @@ CREATE TABLE telemetria (
 CREATE INDEX telemetria_geom_idx ON telemetria USING GIST (geom);
 CREATE INDEX geocercas_geom_idx ON geocercas USING GIST (geom);
 
+-- Indices "normais" (B-tree, o padrao do Postgres) para as consultas por
+-- TEMPO que a API faz (/telemetria ordena por capturado_em; /telemetria/atual
+-- faz DISTINCT ON veiculo_id + ordena por capturado_em). Adicionados no
+-- marco 6, quando a frota viaria (1000 carros/segundo) tornou a tabela
+-- grande o suficiente para essas consultas comecarem a variar rows sem indice.
+CREATE INDEX telemetria_tempo_idx ON telemetria (capturado_em DESC);
+CREATE INDEX telemetria_veiculo_tempo_idx ON telemetria (veiculo_id, capturado_em DESC);
+
 -- Uma geocerca cobrindo aprox. o centro expandido de Sao Paulo (mesma
 -- area do exercicio de geometria do marco 1).
 -- ST_GeomFromText le uma string WKT (Well-Known Text -- o formato de texto

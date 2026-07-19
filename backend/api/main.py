@@ -24,7 +24,8 @@ from sqlalchemy import insert, select
 from database import SessionLocal
 from exercicios import telemetria_proximos
 from geojson import geometria_para_geojson
-from ingest.base import IngestAdapter
+from ingest.base import IngestAdapter, Posicao
+from ingest.frota_viaria import FrotaViariaAdapter
 from ingest.mqtt_adapter import MqttAdapter
 from ingest.simulador_adapter import SimuladorAdapter
 from models import Geocerca, Telemetria
@@ -53,34 +54,74 @@ async def broadcast(mensagem: dict) -> None:
         conexoes_ativas.discard(conexao)
 
 
-async def consumir_adapter(adapter: IngestAdapter) -> None:
-    """Laco generico: para QUALQUER adapter (simulador, MQTT, o que vier
-    depois), faz sempre a mesma coisa com cada Posicao que ele produzir --
-    grava no banco e propaga via WebSocket. Antes do marco 6, essa logica
-    de "gravar + mandar" estava duplicada dentro do proprio simulador; com
-    o adapter, ela existe uma vez so, e vale para qualquer fonte.
-    """
-    async for posicao in adapter.posicoes():
-        with SessionLocal() as session:
-            session.execute(
-                insert(Telemetria).values(
-                    veiculo_id=posicao["veiculo_id"],
-                    geom=ST_SetSRID(ST_MakePoint(posicao["lon"], posicao["lat"]), 4326),
-                    capturado_em=posicao["capturado_em"],
-                )
+def _gravar_lote(lote: list[Posicao]) -> None:
+    with SessionLocal() as session:
+        session.execute(
+            insert(Telemetria).values(
+                [
+                    {
+                        "veiculo_id": p["veiculo_id"],
+                        "geom": ST_SetSRID(ST_MakePoint(p["lon"], p["lat"]), 4326),
+                        "capturado_em": p["capturado_em"],
+                    }
+                    for p in lote
+                ]
             )
-            session.commit()
+        )
+        session.commit()
 
-        await broadcast(
+
+def _lote_para_feature_collection(lote: list[Posicao]) -> dict:
+    return {
+        "type": "FeatureCollection",
+        "features": [
             {
                 "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [posicao["lon"], posicao["lat"]]},
-                "properties": {
-                    "veiculo_id": posicao["veiculo_id"],
-                    "capturado_em": posicao["capturado_em"].isoformat(),
-                },
+                "geometry": {"type": "Point", "coordinates": [p["lon"], p["lat"]]},
+                "properties": {"veiculo_id": p["veiculo_id"], "capturado_em": p["capturado_em"].isoformat()},
             }
-        )
+            for p in lote
+        ],
+    }
+
+
+async def consumir_adapter(adapter: IngestAdapter) -> None:
+    """Laco generico: para QUALQUER adapter (simulador, MQTT, a frota
+    viaria, o que vier depois), faz sempre a mesma coisa com as Posicoes
+    que ele produzir -- grava no banco e propaga via WebSocket. Antes do
+    marco 6, essa logica de "gravar + mandar" estava duplicada dentro do
+    proprio simulador; com o adapter, ela existe uma vez so, e vale para
+    qualquer fonte.
+
+    Agrupa em LOTE em vez de gravar/transmitir uma Posicao por vez: a
+    FrotaViariaAdapter produz ~1000 posicoes de uma vez, a cada tick. Sem
+    lote, seriam 1000 INSERTs (1000 idas e voltas ao Postgres) e 1000
+    mensagens WebSocket separadas por segundo -- caro por natureza, e o
+    mesmo tipo de problema (fazer por item em vez de em conjunto) que
+    discutimos no Laboratorio de Performance, agora no backend. Em vez
+    disso: espera a primeira posicao chegar, depois drena tudo que ja
+    estiver disponivel SEM esperar mais nada, e grava/transmite isso como
+    um unico lote. Fontes lentas (o simulador, 1 veiculo por vez) acabam
+    virando "lotes de tamanho 1" -- o mesmo codigo serve para os dois casos.
+    """
+    fila: asyncio.Queue[Posicao] = asyncio.Queue()
+
+    async def alimentar_fila() -> None:
+        async for posicao in adapter.posicoes():
+            await fila.put(posicao)
+
+    asyncio.create_task(alimentar_fila())
+
+    while True:
+        lote = [await fila.get()]
+        while True:
+            try:
+                lote.append(fila.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        _gravar_lote(lote)
+        await broadcast(_lote_para_feature_collection(lote))
 
 
 @asynccontextmanager
@@ -94,6 +135,7 @@ async def lifespan(app: FastAPI):
     tarefas = [
         asyncio.create_task(consumir_adapter(SimuladorAdapter())),
         asyncio.create_task(consumir_adapter(MqttAdapter())),
+        asyncio.create_task(consumir_adapter(FrotaViariaAdapter(quantidade=1000))),
     ]
     yield
     for tarefa in tarefas:
@@ -149,11 +191,41 @@ def listar_geocercas():
 
 
 @app.get("/telemetria")
-def listar_telemetria(veiculo_id: str | None = None):
+def listar_telemetria(veiculo_id: str | None = None, limite: int = 500):
+    """Historico de telemetria (todas as amostras, mais recentes primeiro).
+
+    `limite` existe para nao repetir o problema que travou a aba Mapa: os
+    adapters do marco 5/6 gravam continuamente, entao "todo o historico"
+    cresce pra sempre. Sem um teto, qualquer cliente que chame este
+    endpoint sem filtro acaba baixando (e tentando desenhar) dezenas de
+    milhares de linhas eventualmente -- o mesmo cenario do Laboratorio de
+    Performance, so que sem querer.
+    """
     with SessionLocal() as session:
-        stmt = select(Telemetria)
+        stmt = select(Telemetria).order_by(Telemetria.capturado_em.desc()).limit(limite)
         if veiculo_id:
             stmt = stmt.where(Telemetria.veiculo_id == veiculo_id)
+        pontos = session.scalars(stmt).all()
+        return feature_collection(
+            pontos,
+            lambda p: {"id": p.id, "veiculo_id": p.veiculo_id, "capturado_em": p.capturado_em.isoformat()},
+        )
+
+
+@app.get("/telemetria/atual")
+def telemetria_atual():
+    """So a posicao MAIS RECENTE de cada veiculo -- o que uma tela de
+    "onde esta a frota agora" deveria mostrar, em vez do historico
+    completo. Usa `DISTINCT ON` (extensao do Postgres): para cada valor
+    distinto de `veiculo_id`, mantem so a primeira linha depois de
+    ordenar por `capturado_em` decrescente -- ou seja, a mais nova.
+    """
+    with SessionLocal() as session:
+        stmt = (
+            select(Telemetria)
+            .distinct(Telemetria.veiculo_id)
+            .order_by(Telemetria.veiculo_id, Telemetria.capturado_em.desc())
+        )
         pontos = session.scalars(stmt).all()
         return feature_collection(
             pontos,
