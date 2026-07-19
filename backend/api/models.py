@@ -29,9 +29,25 @@ class Geocerca(Base):
 
 
 class Telemetria(Base):
+    """Historico: uma linha POR AMOSTRA. So vale a pena gravar aqui
+    quando alguem realmente pode querer consultar o passado depois (ver
+    `Posicao.persistir_historico` em ingest/base.py)."""
+
     __tablename__ = "telemetria"
 
     id = Column(Integer, primary_key=True)
     veiculo_id = Column(String, nullable=False)
+    geom = Column(Geometry(geometry_type="POINT", srid=4326))
+    capturado_em = Column(DateTime(timezone=True))
+
+
+class TelemetriaAtual(Base):
+    """Estado atual: uma linha POR VEICULO, sempre sobrescrita (UPSERT).
+    O que a aba Mapa consulta -- nunca cresce, nao importa ha quanto
+    tempo o sistema esta rodando nem quantos veiculos existiram."""
+
+    __tablename__ = "telemetria_atual"
+
+    veiculo_id = Column(String, primary_key=True)
     geom = Column(Geometry(geometry_type="POINT", srid=4326))
     capturado_em = Column(DateTime(timezone=True))

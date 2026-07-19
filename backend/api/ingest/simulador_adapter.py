@@ -49,4 +49,7 @@ class SimuladorAdapter(IngestAdapter):
                     lon=lon,
                     lat=lat,
                     capturado_em=datetime.now(timezone.utc),
+                    # So 2 veiculos, uteis pro exercicio de /telemetria/proximos
+                    # -- guardar o historico deles e barato e tem valor.
+                    persistir_historico=True,
                 )

@@ -14,12 +14,14 @@ interativa (Swagger UI) sozinho, a partir da assinatura das funcoes abaixo.
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
-from sqlalchemy import insert, select
+from sqlalchemy import delete, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import SessionLocal
 from exercicios import telemetria_proximos
@@ -28,7 +30,7 @@ from ingest.base import IngestAdapter, Posicao
 from ingest.frota_viaria import FrotaViariaAdapter
 from ingest.mqtt_adapter import MqttAdapter
 from ingest.simulador_adapter import SimuladorAdapter
-from models import Geocerca, Telemetria
+from models import Geocerca, Telemetria, TelemetriaAtual
 
 # Marco 5: quem esta conectado no WebSocket agora. Um `set` simples --
 # cada conexao aberta em /ws/telemetria entra aqui, e sai quando desconecta.
@@ -54,20 +56,38 @@ async def broadcast(mensagem: dict) -> None:
         conexoes_ativas.discard(conexao)
 
 
-def _gravar_lote(lote: list[Posicao]) -> None:
+def _linha(p: Posicao) -> dict:
+    return {
+        "veiculo_id": p["veiculo_id"],
+        "geom": ST_SetSRID(ST_MakePoint(p["lon"], p["lat"]), 4326),
+        "capturado_em": p["capturado_em"],
+    }
+
+
+def _atualizar_estado_atual(lote: list[Posicao]) -> None:
+    """UPSERT: 1 linha por veiculo, sempre sobrescrita. `telemetria_atual`
+    nunca cresce -- nao importa ha quanto tempo o sistema roda, so tem
+    tantas linhas quanto veiculos distintos ja apareceram."""
+    stmt = pg_insert(TelemetriaAtual).values([_linha(p) for p in lote])
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[TelemetriaAtual.veiculo_id],
+        set_={"geom": stmt.excluded.geom, "capturado_em": stmt.excluded.capturado_em},
+    )
     with SessionLocal() as session:
-        session.execute(
-            insert(Telemetria).values(
-                [
-                    {
-                        "veiculo_id": p["veiculo_id"],
-                        "geom": ST_SetSRID(ST_MakePoint(p["lon"], p["lat"]), 4326),
-                        "capturado_em": p["capturado_em"],
-                    }
-                    for p in lote
-                ]
-            )
-        )
+        session.execute(stmt)
+        session.commit()
+
+
+def _gravar_historico(lote: list[Posicao]) -> None:
+    """INSERT normal (1 linha nova por amostra) -- so para quem marcou
+    `persistir_historico=True`. Frotas efemeras (ex: FrotaViariaAdapter)
+    marcam False e nunca chegam aqui -- e o que impede a tabela
+    `telemetria` de crescer sem fim outra vez."""
+    linhas = [_linha(p) for p in lote if p["persistir_historico"]]
+    if not linhas:
+        return
+    with SessionLocal() as session:
+        session.execute(insert(Telemetria).values(linhas))
         session.commit()
 
 
@@ -120,8 +140,24 @@ async def consumir_adapter(adapter: IngestAdapter) -> None:
             except asyncio.QueueEmpty:
                 break
 
-        _gravar_lote(lote)
+        _atualizar_estado_atual(lote)
+        _gravar_historico(lote)
         await broadcast(_lote_para_feature_collection(lote))
+
+
+async def limpar_historico_periodicamente(retencao: timedelta = timedelta(hours=1), intervalo_s: float = 600) -> None:
+    """Mesmo o historico que VALE a pena gravar (sim-1, sim-2, MQTT) nao
+    deveria acumular pra sempre. De tempos em tempos, apaga tudo mais
+    velho que `retencao`. E o "TTL" (Time To Live) classico de dados de
+    telemetria: o valor de uma amostra individual cai a zero depois de um
+    tempo, entao nao faz sentido pagar para guarda-la para sempre.
+    """
+    while True:
+        await asyncio.sleep(intervalo_s)
+        limite = datetime.now(timezone.utc) - retencao
+        with SessionLocal() as session:
+            session.execute(delete(Telemetria).where(Telemetria.capturado_em < limite))
+            session.commit()
 
 
 @asynccontextmanager
@@ -136,6 +172,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(consumir_adapter(SimuladorAdapter())),
         asyncio.create_task(consumir_adapter(MqttAdapter())),
         asyncio.create_task(consumir_adapter(FrotaViariaAdapter(quantidade=1000))),
+        asyncio.create_task(limpar_historico_periodicamente()),
     ]
     yield
     for tarefa in tarefas:
@@ -216,20 +253,16 @@ def listar_telemetria(veiculo_id: str | None = None, limite: int = 500):
 def telemetria_atual():
     """So a posicao MAIS RECENTE de cada veiculo -- o que uma tela de
     "onde esta a frota agora" deveria mostrar, em vez do historico
-    completo. Usa `DISTINCT ON` (extensao do Postgres): para cada valor
-    distinto de `veiculo_id`, mantem so a primeira linha depois de
-    ordenar por `capturado_em` decrescente -- ou seja, a mais nova.
+    completo. Le direto de `telemetria_atual` (1 linha por veiculo,
+    mantida por UPSERT em `_atualizar_estado_atual`) -- nao precisa mais
+    de `DISTINCT ON` numa tabela que so cresce; esta tabela tem sempre o
+    mesmo tamanho, o numero de veiculos distintos.
     """
     with SessionLocal() as session:
-        stmt = (
-            select(Telemetria)
-            .distinct(Telemetria.veiculo_id)
-            .order_by(Telemetria.veiculo_id, Telemetria.capturado_em.desc())
-        )
-        pontos = session.scalars(stmt).all()
+        pontos = session.scalars(select(TelemetriaAtual)).all()
         return feature_collection(
             pontos,
-            lambda p: {"id": p.id, "veiculo_id": p.veiculo_id, "capturado_em": p.capturado_em.isoformat()},
+            lambda p: {"id": p.veiculo_id, "veiculo_id": p.veiculo_id, "capturado_em": p.capturado_em.isoformat()},
         )
 
 

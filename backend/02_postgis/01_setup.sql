@@ -50,6 +50,20 @@ CREATE INDEX geocercas_geom_idx ON geocercas USING GIST (geom);
 CREATE INDEX telemetria_tempo_idx ON telemetria (capturado_em DESC);
 CREATE INDEX telemetria_veiculo_tempo_idx ON telemetria (veiculo_id, capturado_em DESC);
 
+-- Tabela de ESTADO ATUAL: uma linha por veiculo (PRIMARY KEY = veiculo_id),
+-- sempre sobrescrita (UPSERT) em vez de acumular uma linha nova por tick.
+-- Adicionada depois que a frota viaria (1000 carros, 1 linha/segundo cada,
+-- para sempre) fez "telemetria" passar de 1 milhao de linhas -- quase tudo
+-- inutil, ja que so a posicao MAIS RECENTE de cada veiculo importa para o
+-- mapa. Ver secao "Padrao: estado atual vs historico" no README.
+DROP TABLE IF EXISTS telemetria_atual;
+CREATE TABLE telemetria_atual (
+    veiculo_id   text PRIMARY KEY,
+    geom         geometry(Point, 4326) NOT NULL,
+    capturado_em timestamptz NOT NULL
+);
+CREATE INDEX telemetria_atual_geom_idx ON telemetria_atual USING GIST (geom);
+
 -- Uma geocerca cobrindo aprox. o centro expandido de Sao Paulo (mesma
 -- area do exercicio de geometria do marco 1).
 -- ST_GeomFromText le uma string WKT (Well-Known Text -- o formato de texto
@@ -71,3 +85,12 @@ INSERT INTO telemetria (veiculo_id, geom) VALUES
     ('drone-1', ST_SetSRID(ST_MakePoint(-46.6300, -23.5480), 4326)),
     ('drone-1', ST_SetSRID(ST_MakePoint(-46.6250, -23.5470), 4326)),
     ('drone-2', ST_SetSRID(ST_MakePoint(-46.6000, -23.5450), 4326));
+
+-- drone-1/drone-2 nao tem nenhum adapter rodando (sao dados fixos de
+-- demonstracao, nao um veiculo "ao vivo") -- entao ninguem faria o UPSERT
+-- deles em telemetria_atual sozinho. Semeamos manualmente aqui para
+-- continuarem aparecendo na aba Mapa (posicao atual = a ultima do historico
+-- acima, drone-1 em -46.6250/-23.5470).
+INSERT INTO telemetria_atual (veiculo_id, geom, capturado_em) VALUES
+    ('drone-1', ST_SetSRID(ST_MakePoint(-46.6250, -23.5470), 4326), now()),
+    ('drone-2', ST_SetSRID(ST_MakePoint(-46.6000, -23.5450), 4326), now());

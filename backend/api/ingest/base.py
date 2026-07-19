@@ -23,6 +23,14 @@ class Posicao(TypedDict):
     lon: float
     lat: float
     capturado_em: datetime
+    # A posicao ATUAL de todo veiculo sempre e atualizada (tabela
+    # telemetria_atual, 1 linha por veiculo). Ja o HISTORICO (tabela
+    # telemetria, 1 linha por amostra, para sempre) so faz sentido gravar
+    # quando alguem pode querer consultar o passado depois -- para uma
+    # frota efemera de centenas/milhares de veiculos sinteticos, ninguem
+    # vai. Cada adapter decide isso explicitamente por Posicao, em vez de
+    # main.py adivinhar "quais veiculos importam" por convencao de nome.
+    persistir_historico: bool
 
 
 class IngestAdapter(ABC):

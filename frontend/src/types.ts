@@ -25,7 +25,10 @@ export interface FeatureCollectionGeoJSON<G, P> {
 }
 
 export interface TelemetriaProps {
-  id: number;
+  // /telemetria e /telemetria/proximos devolvem o id numerico da linha de
+  // historico; /telemetria/atual nao tem "linha" (1 por veiculo, sempre
+  // sobrescrita) e reusa o veiculo_id como id.
+  id: number | string;
   veiculo_id: string;
   capturado_em: string;
 }

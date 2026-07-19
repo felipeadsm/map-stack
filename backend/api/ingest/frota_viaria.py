@@ -100,4 +100,14 @@ class FrotaViariaAdapter(IngestAdapter):
             for carro in carros:
                 carro.avancar(self.velocidade_m_s * INTERVALO_S, nos, adjacencia)
                 lon, lat = carro.posicao_atual(nos)
-                yield Posicao(veiculo_id=carro.veiculo_id, lon=lon, lat=lat, capturado_em=agora)
+                yield Posicao(
+                    veiculo_id=carro.veiculo_id,
+                    lon=lon,
+                    lat=lat,
+                    capturado_em=agora,
+                    # NAO grava historico: 1000 carros x 1 linha/segundo,
+                    # para sempre, e o que fez a tabela "telemetria" passar
+                    # de 1 milhao de linhas sem que ninguem consultasse
+                    # esse passado. So a posicao atual importa aqui.
+                    persistir_historico=False,
+                )

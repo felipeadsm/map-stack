@@ -51,6 +51,9 @@ class MqttAdapter(IngestAdapter):
                     lon=float(dados["lon"]),
                     lat=float(dados["lat"]),
                     capturado_em=datetime.fromisoformat(dados["capturado_em"]),
+                    # Dispositivos reais entrando via MQTT sao poucos e o
+                    # historico deles tem valor (rastreio, auditoria).
+                    persistir_historico=True,
                 )
                 loop.call_soon_threadsafe(fila.put_nowait, posicao)
             except (KeyError, ValueError, json.JSONDecodeError):
